@@ -12,6 +12,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   TextInput,
   View,
@@ -30,7 +31,7 @@ const KENYAN_COUNTIES = [
   'Samburu', 'Trans Nzoia', 'Uasin Gishu', 'Elgeyo-Marakwet', 'Nandi',
   'Baringo', 'Laikipia', 'Nakuru', 'Narok', 'Kajiado', 'Kericho',
   'Bomet', 'Kakamega', 'Vihiga', 'Bungoma', 'Busia', 'Siaya',
-  'Kisumu', 'Homa Bay', 'Migori', 'Kisii', 'Nyamira', 'Nairobi'
+  'Kisumu', 'Homa Bay', 'Migori', 'Kisii', 'Nyamira', 'Nairobi',
 ];
 
 export default function SettingsScreen() {
@@ -39,18 +40,15 @@ export default function SettingsScreen() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
-  // Form State
   const [profilePic, setProfilePic] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [gender, setGender] = useState('');
   const [county, setCounty] = useState('');
 
-  // Lock State
   const [isGenderLocked, setIsGenderLocked] = useState(false);
   const [isCountyLocked, setIsCountyLocked] = useState(false);
 
-  // Modal Picker State
   const [countyModalVisible, setCountyModalVisible] = useState(false);
   const [countySearch, setCountySearch] = useState('');
 
@@ -84,12 +82,11 @@ export default function SettingsScreen() {
         setUsername(profile.username || '');
         setGender(profile.gender || '');
         setCounty(profile.county || '');
-
         setIsGenderLocked(!!profile.gender);
         setIsCountyLocked(!!profile.county);
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('fetchProfile error:', e?.message ?? e);
     } finally {
       setLoading(false);
     }
@@ -99,7 +96,7 @@ export default function SettingsScreen() {
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permissionResult.granted) {
-        Alert.alert('Permission Denied', 'Permission to access gallery is required!');
+        console.warn('Gallery permission denied');
         return;
       }
 
@@ -137,10 +134,9 @@ export default function SettingsScreen() {
         .from('avatars')
         .getPublicUrl(fileName);
 
-      const publicUrl = publicUrlData.publicUrl;
-      setProfilePic(publicUrl);
+      setProfilePic(publicUrlData.publicUrl);
     } catch (err: any) {
-      Alert.alert('Upload Error', err.message);
+      console.error('Upload error:', err?.message ?? err);
     } finally {
       setUploadingImage(false);
     }
@@ -150,36 +146,33 @@ export default function SettingsScreen() {
     try {
       setSaving(true);
       const { data: { user } } = await supabase.auth.getUser();
-
       if (!user) return;
 
       const updates = {
         id: user.id,
         display_name: displayName.trim(),
         username: username.trim(),
-        gender,
-        county,
+        gender: gender || null,
+        county: county || null,
         profile_pic: profilePic,
-        updated_at: new Date().toISOString(),
       };
 
       const { error } = await supabase.from('profiles').upsert(updates);
 
       if (error) {
-        Alert.alert('Save Failed', error.message);
+        console.error('Save failed:', error.message);
       } else {
-        Alert.alert('Success', 'Profile updated successfully.');
         if (gender) setIsGenderLocked(true);
         if (county) setIsCountyLocked(true);
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('handleSaveProfile error:', e?.message ?? e);
     } finally {
       setSaving(false);
     }
   };
 
-const handleSignOut = async () => {
+  const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -190,13 +183,12 @@ const handleSignOut = async () => {
             setSigningOut(true);
             const { error } = await supabase.auth.signOut();
             if (error) {
-              Alert.alert('Error signing out', error.message);
+              console.error('Error signing out:', error.message);
               return;
             }
-            // Redirect to the (tabs) index route
             router.replace('/(tabs)');
           } catch (e: any) {
-            Alert.alert('Error', e.message);
+            console.error('Sign out error:', e?.message ?? e);
           } finally {
             setSigningOut(false);
           }
@@ -212,197 +204,146 @@ const handleSignOut = async () => {
   const genderDisabled = isGenderLocked && !!gender;
   const countyDisabled = isCountyLocked && !!county;
 
-  return (
-    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
-      {loading ? (
-        <View style={styles.centerContainer}>
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.center}>
           <ActivityIndicator size="large" color="#3B82F6" />
         </View>
-      ) : (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
-        >
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.card}>
-              <ThemedText style={styles.sectionTitle}>Edit Profile</ThemedText>
+      </SafeAreaView>
+    );
+  }
 
-              {/* Avatar Section */}
-              <View style={styles.avatarSection}>
-                <Pressable style={styles.avatarWrapper} onPress={handlePickAvatar} disabled={uploadingImage}>
-                  {profilePic ? (
-                    <Image source={{ uri: profilePic }} style={styles.avatarImage} />
-                  ) : (
-                    <View style={styles.avatarPlaceholder}>
-                      <Ionicons name="person" size={40} color="#9ca3af" />
-                    </View>
-                  )}
-                  {uploadingImage ? (
-                    <View style={styles.avatarLoadingOverlay}>
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    </View>
-                  ) : (
-                    <View style={styles.cameraIconBadge}>
-                      <Ionicons name="camera" size={14} color="#FFFFFF" />
-                    </View>
-                  )}
-                </Pressable>
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" />
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <ThemedText style={styles.title}>Edit Profile</ThemedText>
+
+          {/* Avatar */}
+          <Pressable onPress={handlePickAvatar} disabled={uploadingImage} style={styles.avatarWrap}>
+            {profilePic ? (
+              <Image source={{ uri: profilePic }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons name="person" size={40} color="#9ca3af" />
               </View>
+            )}
+            {uploadingImage && (
+              <View style={styles.avatarOverlay}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            )}
+          </Pressable>
 
-              {/* Security Info Banner */}
-              {(genderDisabled || countyDisabled) && (
-                <View style={styles.infoBanner}>
-                  <Ionicons name="lock-closed" size={16} color="#1E40AF" style={{ marginRight: 6 }} />
-                  <ThemedText style={styles.infoBannerText}>
-                    Gender and County are locked once saved for security verification.
-                  </ThemedText>
-                </View>
-              )}
+          {/* Display Name */}
+          <ThemedText style={styles.label}>Display Name</ThemedText>
+          <TextInput
+            style={styles.input}
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="Enter display name"
+            placeholderTextColor="#9ca3af"
+          />
 
-              {/* Display Name */}
-              <View style={styles.fieldGroup}>
-                <ThemedText style={styles.label}>DISPLAY NAME</ThemedText>
-                <TextInput
-                  style={styles.input}
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  placeholder="Enter display name"
-                  placeholderTextColor="#9ca3af"
+          {/* Username */}
+          <ThemedText style={styles.label}>Username</ThemedText>
+          <View style={styles.row}>
+            <ThemedText style={{ marginRight: 4 }}>@</ThemedText>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={username}
+              onChangeText={setUsername}
+              placeholder="username"
+              placeholderTextColor="#9ca3af"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          {/* Gender */}
+          <ThemedText style={styles.label}>
+            Gender {genderDisabled ? '(Locked)' : ''}
+          </ThemedText>
+          <View style={styles.row}>
+            {['Male', 'Female'].map((option) => (
+              <Pressable
+                key={option}
+                disabled={genderDisabled}
+                onPress={() => setGender(option)}
+                style={styles.radio}
+              >
+                <Ionicons
+                  name={gender === option ? 'radio-button-on' : 'radio-button-off'}
+                  size={20}
+                  color={gender === option ? '#3B82F6' : '#9ca3af'}
                 />
-              </View>
-
-              {/* Username */}
-              <View style={styles.fieldGroup}>
-                <ThemedText style={styles.label}>USERNAME</ThemedText>
-                <View style={styles.usernameInputWrapper}>
-                  <ThemedText style={styles.atSymbol}>@</ThemedText>
-                  <TextInput
-                    style={styles.usernameInput}
-                    value={username}
-                    onChangeText={setUsername}
-                    placeholder="username"
-                    placeholderTextColor="#9ca3af"
-                    autoCapitalize="none"
-                  />
-                </View>
-              </View>
-
-              {/* Gender Radio */}
-              <View style={styles.fieldGroup}>
-                <View style={styles.labelRow}>
-                  <ThemedText style={styles.label}>GENDER</ThemedText>
-                  {genderDisabled && (
-                    <View style={styles.lockBadge}>
-                      <Ionicons name="lock-closed" size={10} color="#6b7280" />
-                      <ThemedText style={styles.lockBadgeText}>Locked</ThemedText>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.radioRow}>
-                  {['Male', 'Female'].map((option) => (
-                    <Pressable
-                      key={option}
-                      style={[
-                        styles.radioButton,
-                        gender === option && styles.radioButtonSelected,
-                        genderDisabled && styles.disabledOption,
-                      ]}
-                      disabled={genderDisabled}
-                      onPress={() => setGender(option)}
-                    >
-                      <Ionicons
-                        name={gender === option ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={gender === option ? '#3B82F6' : '#9ca3af'}
-                      />
-                      <ThemedText
-                        style={[
-                          styles.radioText,
-                          gender === option && styles.radioTextSelected,
-                        ]}
-                      >
-                        {option}
-                      </ThemedText>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-
-              {/* County Selection */}
-              <View style={styles.fieldGroup}>
-                <View style={styles.labelRow}>
-                  <ThemedText style={styles.label}>COUNTY</ThemedText>
-                  {countyDisabled && (
-                    <View style={styles.lockBadge}>
-                      <Ionicons name="lock-closed" size={10} color="#6b7280" />
-                      <ThemedText style={styles.lockBadgeText}>Locked</ThemedText>
-                    </View>
-                  )}
-                </View>
-                <Pressable
-                  style={[styles.selectInput, countyDisabled && styles.disabledOption]}
-                  disabled={countyDisabled}
-                  onPress={() => setCountyModalVisible(true)}
-                >
-                  <ThemedText style={county ? styles.selectValue : styles.selectPlaceholder}>
-                    {county || 'Select your county'}
-                  </ThemedText>
-                  <Ionicons
-                    name={countyDisabled ? 'lock-closed' : 'chevron-down'}
-                    size={18}
-                    color="#6b7280"
-                  />
-                </Pressable>
-              </View>
-
-              {/* Save Button */}
-              <Pressable
-                style={[styles.saveButton, saving && styles.disabledButton]}
-                onPress={handleSaveProfile}
-                disabled={saving}
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <ThemedText style={styles.saveButtonText}>Save Changes</ThemedText>
-                )}
+                <ThemedText style={{ marginLeft: 6 }}>{option}</ThemedText>
               </Pressable>
-            </View>
+            ))}
+          </View>
 
-            {/* Bottom Sign Out Button */}
-            <View style={styles.signOutContainer}>
-              <Pressable
-                style={[styles.signOutButton, signingOut && styles.disabledButton]}
-                onPress={handleSignOut}
-                disabled={signingOut}
-              >
-                {signingOut ? (
-                  <ActivityIndicator size="small" color="#EF4444" />
-                ) : (
-                  <>
-                    <Ionicons name="log-out-outline" size={20} color="#EF4444" style={{ marginRight: 8 }} />
-                    <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
-                  </>
-                )}
-              </Pressable>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      )}
+          {/* County */}
+          <ThemedText style={styles.label}>
+            County {countyDisabled ? '(Locked)' : ''}
+          </ThemedText>
+          <Pressable
+            disabled={countyDisabled}
+            onPress={() => setCountyModalVisible(true)}
+            style={styles.input}
+          >
+            <ThemedText>{county || 'Select your county'}</ThemedText>
+          </Pressable>
 
-      {/* County Search Modal */}
+          {/* Save */}
+          <Pressable
+            style={[styles.button, saving && { opacity: 0.6 }]}
+            onPress={handleSaveProfile}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.buttonText}>Save Changes</ThemedText>
+            )}
+          </Pressable>
+
+          {/* Sign Out */}
+          <Pressable
+            style={[styles.signOut, signingOut && { opacity: 0.6 }]}
+            onPress={handleSignOut}
+            disabled={signingOut}
+          >
+            {signingOut ? (
+              <ActivityIndicator color="#EF4444" />
+            ) : (
+              <ThemedText style={{ color: '#EF4444', fontWeight: '700' }}>
+                Sign Out
+              </ThemedText>
+            )}
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* County Modal */}
       <Modal visible={countyModalVisible} animationType="slide" transparent>
         <SafeAreaView style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <ThemedText style={styles.modalTitle}>Select County</ThemedText>
-              <Pressable onPress={() => setCountyModalVisible(false)} hitSlop={8}>
-                <Ionicons name="close" size={24} color="#1a1a2e" />
+              <ThemedText style={styles.title}>Select County</ThemedText>
+              <Pressable onPress={() => setCountyModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#000" />
               </Pressable>
             </View>
 
             <TextInput
-              style={styles.modalSearchInput}
+              style={styles.input}
               placeholder="Search county..."
               placeholderTextColor="#9ca3af"
               value={countySearch}
@@ -413,6 +354,7 @@ const handleSignOut = async () => {
             <FlatList
               data={filteredCounties}
               keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
                 <Pressable
                   style={styles.countyItem}
@@ -422,12 +364,7 @@ const handleSignOut = async () => {
                     setCountySearch('');
                   }}
                 >
-                  <ThemedText
-                    style={[
-                      styles.countyItemText,
-                      county === item && styles.selectedCountyText,
-                    ]}
-                  >
+                  <ThemedText style={county === item ? { color: '#3B82F6', fontWeight: '700' } : undefined}>
                     {item}
                   </ThemedText>
                   {county === item && <Ionicons name="checkmark" size={20} color="#3B82F6" />}
@@ -442,270 +379,75 @@ const handleSignOut = async () => {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FC',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scrollContent: {
-    padding: Spacing.four,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1a1a2e',
-    marginBottom: 16,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  avatarWrapper: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    position: 'relative',
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 45,
-  },
-  avatarPlaceholder: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 45,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarLoadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderRadius: 45,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cameraIconBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#3B82F6',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  infoBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 16,
-  },
-  infoBannerText: {
-    fontSize: 12,
-    color: '#1E40AF',
-    flex: 1,
-  },
-  fieldGroup: {
-    marginBottom: 16,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6b7280',
-    marginBottom: 6,
-  },
-  lockBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E5E7EB',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    gap: 4,
-  },
-  lockBadgeText: {
-    fontSize: 10,
-    color: '#6b7280',
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#F8F9FC' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  scroll: { padding: Spacing.four, paddingBottom: 40 },
+  title: { fontSize: 18, fontWeight: '800', marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 12 },
   input: {
-    backgroundColor: '#F8F9FC',
-    borderRadius: 10,
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#1a1a2e',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 4,
   },
-  usernameInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FC',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    paddingHorizontal: 12,
-  },
-  atSymbol: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginRight: 4,
-  },
-  usernameInput: {
-    flex: 1,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#1a1a2e',
-  },
-  radioRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  radioButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-  },
-  radioButtonSelected: {},
-  radioText: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  radioTextSelected: {
-    color: '#1a1a2e',
-    fontWeight: '700',
-  },
-  selectInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F8F9FC',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  selectValue: {
-    fontSize: 14,
-    color: '#1a1a2e',
-  },
-  selectPlaceholder: {
-    fontSize: 14,
-    color: '#9ca3af',
-  },
-  disabledOption: {
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  radio: { flexDirection: 'row', alignItems: 'center', marginRight: 20, paddingVertical: 8 },
+  avatarWrap: { alignSelf: 'center', marginBottom: 16 },
+  avatar: { width: 80, height: 80, borderRadius: 40 },
+  avatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: '#E5E7EB',
-    opacity: 0.7,
-  },
-  saveButton: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  signOutContainer: {
-    marginTop: 24,
-    marginBottom: 40,
-  },
-  signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+  },
+  avatarOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  button: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  buttonText: { color: '#fff', fontWeight: '700' },
+  signOut: {
+    marginTop: 24,
+    padding: 14,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#FCA5A5',
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
   },
-  signOutText: {
-    color: '#EF4444',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  modalOverlay: {
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  modal: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  modalContent: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#fff',
     marginTop: 60,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1a1a2e',
-  },
-  modalSearchInput: {
-    backgroundColor: '#F8F9FC',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#1a1a2e',
     marginBottom: 12,
   },
   countyItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#E5E7EB',
-  },
-  countyItemText: {
-    fontSize: 15,
-    color: '#1a1a2e',
-  },
-  selectedCountyText: {
-    color: '#3B82F6',
-    fontWeight: '700',
   },
 });

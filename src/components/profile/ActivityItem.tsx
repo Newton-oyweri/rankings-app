@@ -1,9 +1,25 @@
 import { SymbolView } from 'expo-symbols';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  StyleSheet,
+  UIManager,
+  View,
+} from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { supabase } from '@/lib/supabase';
+
+// Enable LayoutAnimation for Android
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface Team {
   name: string;
@@ -105,41 +121,51 @@ export function ActivityItem({ userId }: ActivityItemProps) {
   return (
     <View style={styles.container}>
       {votes.map((item) => (
-        <MatchVoteCard key={item.id} vote={item} />
+        <BetslipCard key={item.id} vote={item} />
       ))}
     </View>
   );
 }
 
-function MatchVoteCard({ vote }: { vote: MatchVoteRecord }) {
+function BetslipCard({ vote }: { vote: MatchVoteRecord }) {
+  const [expanded, setExpanded] = useState<boolean>(false);
   const match = vote.matches;
-  const homeTeam = match?.home_team;
-  const awayTeam = match?.away_team;
+  const homeTeam = match?.home_team?.name || 'Home';
+  const awayTeam = match?.away_team?.name || 'Away';
+
+  const toggleExpand = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded((prev) => !prev);
+  };
 
   const outcomeConfig = {
     correct: {
-      label: '✓ Correct',
+      badgeText: 'W',
       color: '#16A34A',
-      bgColor: 'rgba(22, 163, 74, 0.1)',
-      points: '+20 PTS',
+      bgColor: 'rgba(22, 163, 74, 0.12)',
+      points: '+10 PTS',
+      label: 'WON',
     },
     incorrect: {
-      label: '✗ Incorrect',
+      badgeText: 'L',
       color: '#DC2626',
-      bgColor: 'rgba(220, 38, 38, 0.1)',
+      bgColor: 'rgba(220, 38, 38, 0.12)',
       points: '0 PTS',
+      label: 'LOST',
     },
     pending: {
-      label: '⏳ Pending',
+      badgeText: 'PENDING',
       color: '#D97706',
-      bgColor: 'rgba(217, 119, 6, 0.1)',
+      bgColor: 'rgba(217, 119, 6, 0.12)',
       points: 'PENDING',
+      label: 'PENDING',
     },
   }[vote.outcome] || {
-    label: 'Pending',
+    badgeText: 'PENDING',
     color: '#64748B',
     bgColor: '#F1F5F9',
     points: '0 PTS',
+    label: 'PENDING',
   };
 
   const formattedDate = match?.created_at
@@ -151,72 +177,82 @@ function MatchVoteCard({ vote }: { vote: MatchVoteRecord }) {
 
   const scoreDisplay = match?.played
     ? `${match.home_goals} - ${match.away_goals}`
-    : 'VS';
+    : 'Not Played';
 
   return (
-    <View style={styles.activityItem}>
-      {/* Left Column: Points Badge */}
-      <View style={styles.activityLeft}>
-        <View style={[styles.badgeContainer, { backgroundColor: outcomeConfig.bgColor }]}>
-          <ThemedText style={[styles.badgeText, { color: outcomeConfig.color }]}>
-            {outcomeConfig.points}
+    <Pressable style={styles.betslipCard} onPress={toggleExpand}>
+      {/* Top Main Row */}
+      <View style={styles.mainRow}>
+        {/* Match & Selection Details */}
+        <View style={styles.leftInfo}>
+          <ThemedText style={styles.teamsHeader} numberOfLines={1}>
+            {homeTeam} <ThemedText style={styles.vsText}>vs</ThemedText> {awayTeam}
           </ThemedText>
+
+          <View style={styles.pickRow}>
+            <ThemedText style={styles.pickLabel}>Pick: </ThemedText>
+            <ThemedText style={styles.pickValue} numberOfLines={1}>
+              {vote.predicted_winner}
+            </ThemedText>
+          </View>
+        </View>
+
+        {/* Far Right Outcome Badge */}
+        <View style={styles.rightInfo}>
+          <View style={[styles.outcomeBadge, { backgroundColor: outcomeConfig.bgColor }]}>
+            <ThemedText style={[styles.outcomeBadgeText, { color: outcomeConfig.color }]}>
+              {outcomeConfig.badgeText}
+            </ThemedText>
+          </View>
+          <SymbolView
+            name={{
+              ios: expanded ? 'chevron.up' : 'chevron.down',
+              android: expanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down',
+              web: expanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down',
+            }}
+            size={14}
+            tintColor="#94A3B8"
+          />
         </View>
       </View>
 
-      {/* Middle Column: Match Details & Teams */}
-      <View style={styles.activityCenter}>
-        <View style={styles.activityMeta}>
-          <ThemedText style={styles.stageText}>{match?.stage || 'MATCH'}</ThemedText>
-          <ThemedText style={styles.dot}>•</ThemedText>
-          <ThemedText style={styles.predictionText}>
-            Pick: <ThemedText style={styles.predictionPick}>{vote.predicted_winner}</ThemedText>
-          </ThemedText>
+      {/* Expanded Content View */}
+      {expanded && (
+        <View style={styles.expandedContent}>
+          <View style={styles.divider} />
+          
+          <View style={styles.detailRow}>
+            <ThemedText style={styles.detailLabel}>Stage</ThemedText>
+            <ThemedText style={styles.detailValue}>{match?.stage || 'MATCH'}</ThemedText>
+          </View>
+
+          <View style={styles.detailRow}>
+            <ThemedText style={styles.detailLabel}>Result Score</ThemedText>
+            <ThemedText style={styles.detailValue}>{scoreDisplay}</ThemedText>
+          </View>
+
+          <View style={styles.detailRow}>
+            <ThemedText style={styles.detailLabel}>Points Awarded</ThemedText>
+            <ThemedText style={[styles.detailValue, { color: outcomeConfig.color }]}>
+              {outcomeConfig.points}
+            </ThemedText>
+          </View>
+
           {formattedDate ? (
-            <>
-              <ThemedText style={styles.dot}>•</ThemedText>
-              <ThemedText style={styles.time}>{formattedDate}</ThemedText>
-            </>
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Date</ThemedText>
+              <ThemedText style={styles.detailValue}>{formattedDate}</ThemedText>
+            </View>
           ) : null}
         </View>
-
-        <View style={styles.matchRow}>
-          {/* Home Team */}
-          <View style={styles.teamContainer}>
-            <ThemedText style={styles.teamName} numberOfLines={1}>
-              {homeTeam?.name || 'Home Team'}
-            </ThemedText>
-          </View>
-
-          {/* Score & Outcome Status */}
-          <View style={styles.scoreBox}>
-            <ThemedText style={styles.score}>{scoreDisplay}</ThemedText>
-            <ThemedText style={[styles.statusBadge, { color: outcomeConfig.color }]}>
-              {outcomeConfig.label}
-            </ThemedText>
-          </View>
-
-          {/* Away Team */}
-          <View style={styles.teamContainer}>
-            <ThemedText style={styles.teamName} numberOfLines={1}>
-              {awayTeam?.name || 'Away Team'}
-            </ThemedText>
-          </View>
-        </View>
-      </View>
-
-      <SymbolView
-        name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-        size={16}
-        tintColor="#94A3B8"
-      />
-    </View>
+      )}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    gap: 10,
+    gap: 8,
   },
   loaderContainer: {
     padding: 20,
@@ -232,91 +268,91 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 14,
   },
-  activityItem: {
+  betslipCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
     elevation: 1,
   },
-  activityLeft: {
-    minWidth: 65,
-    alignItems: 'flex-start',
-  },
-  badgeContainer: {
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    borderRadius: 6,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  activityCenter: {
-    flex: 1,
-  },
-  activityMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-  },
-  stageText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#475569',
-  },
-  predictionText: {
-    fontSize: 11,
-    color: '#64748B',
-  },
-  predictionPick: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  dot: {
-    color: '#94A3B8',
-    fontSize: 10,
-  },
-  time: {
-    fontSize: 11,
-    color: '#94A3B8',
-  },
-  matchRow: {
+  mainRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  teamContainer: {
+  leftInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  teamsHeader: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  vsText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  pickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pickLabel: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  pickValue: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  rightInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  outcomeBadge: {
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 6,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    width: 75,
   },
-  teamName: {
+  outcomeBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 10,
+  },
+  expandedContent: {
+    paddingTop: 2,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  detailValue: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#1E293B',
-    textAlign: 'center',
-  },
-  scoreBox: {
-    alignItems: 'center',
-  },
-  score: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1E293B',
-  },
-  statusBadge: {
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: 2,
+    color: '#0F172A',
   },
 });
 

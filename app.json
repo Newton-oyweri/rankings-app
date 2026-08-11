@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "rankings",
+    "name": "Rankings",
     "slug": "rankings",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,10 +10,10 @@
     "ios": {
       "icon": "./assets/expo.icon"
     },
-   "android": {
-  "predictiveBackGestureEnabled": false,
-  "package": "com.skylaisack.rankings"
-},
+    "android": {
+      "predictiveBackGestureEnabled": false,
+      "package": "com.skylaisack.rankings"
+    },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
@@ -30,7 +30,15 @@
       ],
       "expo-font",
       "expo-secure-store",
-      "expo-build-properties",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "@react-native-community/datetimepicker",
       "expo-audio",
       "expo-video",

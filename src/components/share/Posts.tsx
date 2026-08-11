@@ -375,8 +375,21 @@ export default function Posts() {
   };
 
   useEffect(() => {
+    let isActive = true;
+
     fetchCurrentUser();
     fetchPosts();
+
+    // Guard against duplicate/stale channels caused by React Fabric's
+    // reconnectPassiveEffects re-running this effect (e.g. tab screens
+    // kept mounted via Activity) before the previous cleanup has fully
+    // torn down the same-named realtime channel.
+    const existing = supabase
+      .getChannels()
+      .find((c) => c.topic === "realtime:rn-newspaper-posts");
+    if (existing) {
+      supabase.removeChannel(existing);
+    }
 
     const channel = supabase
       .channel("rn-newspaper-posts")
@@ -385,7 +398,7 @@ export default function Posts() {
         { event: "INSERT", schema: "public", table: "posts" },
         async (payload) => {
           const newPost = await fetchSinglePost(payload.new.id);
-          if (newPost) {
+          if (newPost && isActive) {
             setPosts((prev) => [newPost, ...prev.filter((p) => p.id !== newPost.id)]);
           }
         }
@@ -394,6 +407,7 @@ export default function Posts() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "posts" },
         (payload) => {
+          if (!isActive) return;
           setPosts((prev) =>
             prev.map((post) =>
               post.id === String(payload.new.id)
@@ -407,12 +421,14 @@ export default function Posts() {
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "posts" },
         (payload) => {
+          if (!isActive) return;
           setPosts((prev) => prev.filter((post) => post.id !== String(payload.old.id)));
         }
       )
       .subscribe();
 
     return () => {
+      isActive = false;
       supabase.removeChannel(channel);
     };
   }, []);
@@ -711,7 +727,6 @@ export default function Posts() {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,

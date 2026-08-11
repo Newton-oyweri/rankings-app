@@ -35,11 +35,11 @@ export function ProfileHeader() {
           onPress={handleOpenSettings}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-        <SymbolView
-  name={{ ios: 'person', android: 'person', web: 'person' }}
-  size={22}
-  tintColor="#1A1A2E"
-/>
+          <SymbolView
+            name={{ ios: 'pencil', android: 'edit', web: 'edit' }}
+            size={20}
+            tintColor="#1A1A2E"
+          />
         </Pressable>
       </View>
     </View>
