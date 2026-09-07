@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   StatusBar,
   SafeAreaView,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -28,6 +29,33 @@ interface UserProfile {
   avatar: string | null;
 }
 
+interface UserPost {
+  id: number;
+  summary: string | null;
+  image_url: string | null;
+  likes: number;
+  created_at: string;
+}
+
+const formatTimeAgo = (dateStr: string) => {
+  const now = new Date();
+  const postDate = new Date(dateStr);
+  const diffMs = now.getTime() - postDate.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  if (diffDays < 7) return `${diffDays}d`;
+
+  return postDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+};
+
 export default function AddPosts() {
   const router = useRouter();
 
@@ -36,6 +64,31 @@ export default function AddPosts() {
   const [content, setContent] = useState("");
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isPosting, setIsPosting] = useState(false);
+
+  // User's own posts
+  const [myPosts, setMyPosts] = useState<UserPost[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const fetchMyPosts = useCallback(async (userId: string) => {
+    try {
+      setLoadingPosts(true);
+      const { data, error } = await supabase
+        .from("posts")
+        .select("id, summary, image_url, likes, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setMyPosts(data || []);
+    } catch (err) {
+      console.error("Failed to load your posts:", err);
+    } finally {
+      setLoadingPosts(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     async function checkAuth() {
@@ -56,12 +109,15 @@ export default function AddPosts() {
           .eq("id", user.id)
           .single();
 
-        setCurrentUser({
+        const profileData: UserProfile = {
           id: user.id,
           name: profile?.display_name || user.email?.split("@")[0] || "User",
           username: profile?.username || "user",
           avatar: profile?.profile_pic || null,
-        });
+        };
+
+        setCurrentUser(profileData);
+        await fetchMyPosts(user.id);
       } catch (err) {
         console.error("Auth check failed:", err);
         router.replace("/(auth)/sign-in");
@@ -71,7 +127,13 @@ export default function AddPosts() {
     }
 
     checkAuth();
-  }, [router]);
+  }, [router, fetchMyPosts]);
+
+  const onRefresh = () => {
+    if (!currentUser) return;
+    setRefreshing(true);
+    fetchMyPosts(currentUser.id);
+  };
 
   const pickImage = async () => {
     const permissionResult =
@@ -85,9 +147,8 @@ export default function AddPosts() {
       return;
     }
 
-    // Fixed Expo deprecation: Pass array ['images'] and disable cropping (allowsEditing: false)
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ["images"],
       quality: 1,
       allowsEditing: false,
     });
@@ -99,19 +160,14 @@ export default function AddPosts() {
 
   const removeImage = () => setImageUri(null);
 
-  // Convert local file URI to Blob to prevent 'Unsupported FormDataPart implementation'
   const uploadImageToWorker = async (uri: string): Promise<string> => {
     const filename = uri.split("/").pop() || "upload.jpg";
-
-    // 1. Fetch file as Blob
     const response = await fetch(uri);
     const blob = await response.blob();
 
-    // 2. Build FormData matching web behavior
     const formData = new FormData();
     formData.append("file", blob, filename);
 
-    // 3. Post to Cloudflare Worker (do NOT manually set Content-Type header so boundary generates automatically)
     const uploadRes = await fetch(WORKER_URL, {
       method: "POST",
       body: formData,
@@ -145,24 +201,31 @@ export default function AddPosts() {
         uploadedImageUrl = await uploadImageToWorker(imageUri);
       }
 
-      const { error } = await supabase.from("posts").insert([
-        {
-          user_id: currentUser.id,
-          summary: content.trim(),
-          image_url: uploadedImageUrl || null,
-          likes: 0,
-          views: 0,
-        },
-      ]);
+      const { data, error } = await supabase
+        .from("posts")
+        .insert([
+          {
+            user_id: currentUser.id,
+            summary: content.trim() || null,
+            image_url: uploadedImageUrl || null,
+            likes: 0,
+            views: 0,
+          },
+        ])
+        .select("id, summary, image_url, likes, created_at")
+        .single();
 
       if (error) throw error;
 
-      Alert.alert("Success", "Your post is live!", [
-        {
-          text: "OK",
-          onPress: () => router.back(),
-        },
-      ]);
+      // Add the new post to the top of the list
+      if (data) {
+        setMyPosts((prev) => [data, ...prev]);
+      }
+
+      setContent("");
+      setImageUri(null);
+
+      Alert.alert("Success", "Your post is live!");
     } catch (err: any) {
       console.error("Failed to submit post:", err);
       Alert.alert(
@@ -172,6 +235,39 @@ export default function AddPosts() {
     } finally {
       setIsPosting(false);
     }
+  };
+
+  const handleDeletePost = (post: UserPost) => {
+    Alert.alert(
+      "Delete Post",
+      "Are you sure you want to permanently delete this post?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingId(post.id);
+            try {
+              const { error } = await supabase
+                .from("posts")
+                .delete()
+                .eq("id", post.id)
+                .eq("user_id", currentUser?.id); // extra safety
+
+              if (error) throw error;
+
+              setMyPosts((prev) => prev.filter((p) => p.id !== post.id));
+            } catch (err: any) {
+              console.error("Delete failed:", err);
+              Alert.alert("Error", err.message || "Failed to delete post.");
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (checkingAuth) {
@@ -188,7 +284,7 @@ export default function AddPosts() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* HEADER SECTION */}
+      {/* HEADER */}
       <View style={styles.header}>
         <Pressable
           style={styles.backButton}
@@ -209,10 +305,17 @@ export default function AddPosts() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#2563EB"]}
+              tintColor="#2563EB"
+            />
+          }
         >
-          {/* Composer Card */}
+          {/* ========== COMPOSER CARD ========== */}
           <View style={styles.card}>
-            {/* User row */}
             <View style={styles.userRow}>
               {currentUser?.avatar ? (
                 <Image
@@ -230,7 +333,6 @@ export default function AddPosts() {
               </View>
             </View>
 
-            {/* Text Input */}
             <TextInput
               style={styles.input}
               placeholder="What's happening in the community?"
@@ -243,10 +345,8 @@ export default function AddPosts() {
               editable={!isPosting}
             />
 
-            {/* Character count */}
             <Text style={styles.charCount}>{content.length}/500</Text>
 
-            {/* Uncropped Image Preview */}
             {imageUri && (
               <View style={styles.imagePreviewWrapper}>
                 <Image
@@ -265,7 +365,6 @@ export default function AddPosts() {
               </View>
             )}
 
-            {/* Actions Row */}
             <View style={styles.actionsRow}>
               <Pressable
                 style={({ pressed }) => [
@@ -299,6 +398,69 @@ export default function AddPosts() {
               </Pressable>
             </View>
           </View>
+
+          {/* ========== YOUR POSTS SECTION ========== */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Posts</Text>
+            <Text style={styles.sectionCount}>
+              {myPosts.length} {myPosts.length === 1 ? "post" : "posts"}
+            </Text>
+          </View>
+
+          {loadingPosts && myPosts.length === 0 ? (
+            <View style={styles.postsLoading}>
+              <ActivityIndicator size="small" color="#2563EB" />
+            </View>
+          ) : myPosts.length === 0 ? (
+            <View style={styles.emptyPosts}>
+              <Ionicons name="document-text-outline" size={36} color="#94A3B8" />
+              <Text style={styles.emptyPostsText}>
+                You haven’t posted anything yet
+              </Text>
+            </View>
+          ) : (
+            myPosts.map((post) => (
+              <View key={post.id} style={styles.postCard}>
+                <View style={styles.postCardHeader}>
+                  <Text style={styles.postTime}>
+                    {formatTimeAgo(post.created_at)}
+                  </Text>
+
+                  <Pressable
+                    style={styles.deleteBtn}
+                    onPress={() => handleDeletePost(post)}
+                    disabled={deletingId === post.id}
+                    hitSlop={8}
+                  >
+                    {deletingId === post.id ? (
+                      <ActivityIndicator size="small" color="#EF4444" />
+                    ) : (
+                      <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                    )}
+                  </Pressable>
+                </View>
+
+                {post.summary ? (
+                  <Text style={styles.postSummary} numberOfLines={4}>
+                    {post.summary}
+                  </Text>
+                ) : null}
+
+                {post.image_url ? (
+                  <Image
+                    source={{ uri: post.image_url }}
+                    style={styles.postImage}
+                    resizeMode="cover"
+                  />
+                ) : null}
+
+                <View style={styles.postMeta}>
+                  <Ionicons name="football-outline" size={14} color="#64748B" />
+                  <Text style={styles.postLikes}>{post.likes} likes</Text>
+                </View>
+              </View>
+            ))
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -340,13 +502,15 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
+
+  // Composer
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    marginBottom: 14,
+    marginBottom: 20,
   },
   userRow: {
     flexDirection: "row",
@@ -447,5 +611,86 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+
+  // Your Posts section
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  sectionCount: {
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+  postsLoading: {
+    paddingVertical: 30,
+    alignItems: "center",
+  },
+  emptyPosts: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderStyle: "dashed",
+    paddingVertical: 36,
+    alignItems: "center",
+  },
+  emptyPostsText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: "#64748B",
+  },
+  postCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginBottom: 10,
+  },
+  postCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  postTime: {
+    fontSize: 12,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+  deleteBtn: {
+    padding: 4,
+  },
+  postSummary: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#0F172A",
+    marginBottom: 10,
+  },
+  postImage: {
+    width: "100%",
+    height: 160,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    marginBottom: 10,
+  },
+  postMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  postLikes: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
   },
 });

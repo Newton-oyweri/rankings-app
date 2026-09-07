@@ -7,9 +7,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppState, StyleSheet, View, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { SwipeableStreakBonus } from '@/components/rankings/SwipeableStreakBonus';
+import { registerForPushNotificationsAsync } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { shouldHandleAuthUrl } from '@/lib/authRedirectGuard';
 
@@ -18,14 +18,12 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
-
   const [session, setSession] = useState<Session | null>(null);
   const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
 
   const checkTodayStatus = useCallback(async (userId: string) => {
     try {
       const today = new Date().toISOString().split('T')[0];
-
       const { data, error } = await supabase
         .from('check_ins')
         .select('id')
@@ -37,16 +35,25 @@ export default function RootLayout() {
         console.error('[layout] check-in status error:', error.message);
         return;
       }
-
       setHasCheckedInToday(!!data);
     } catch (err) {
       console.error('[layout] checkTodayStatus error:', err);
     }
   }, []);
 
+  // Request push notification permission + save token
+  const setupPushNotifications = useCallback(async (userId: string) => {
+    try {
+      await registerForPushNotificationsAsync(userId);
+    } catch (err) {
+      console.error('[layout] push notification setup error:', err);
+    }
+  }, []);
+
   const handleDeepLink = async (url: string | null) => {
     console.log('[layout] handleDeepLink raw url:', url);
     if (!url) return;
+
     if (!shouldHandleAuthUrl(url)) {
       console.log('[layout] skipped — already handled elsewhere');
       return;
@@ -74,6 +81,7 @@ export default function RootLayout() {
       setSession(session);
       if (session?.user?.id) {
         checkTodayStatus(session.user.id);
+        setupPushNotifications(session.user.id); // ← request permission here
       }
     });
 
@@ -84,6 +92,7 @@ export default function RootLayout() {
       setSession(session);
       if (session?.user?.id) {
         checkTodayStatus(session.user.id);
+        setupPushNotifications(session.user.id); // ← also on login
       } else {
         setHasCheckedInToday(false);
       }
@@ -101,9 +110,9 @@ export default function RootLayout() {
       subscription.unsubscribe();
       linkSubscription.remove();
     };
-  }, [checkTodayStatus]);
+  }, [checkTodayStatus, setupPushNotifications]);
 
-  // Re-check when app comes back to foreground (e.g. after midnight or after check-in elsewhere)
+  // Re-check when app comes back to foreground
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && session?.user?.id) {
@@ -113,7 +122,7 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [session?.user?.id, checkTodayStatus]);
 
-  // Optional: listen for realtime inserts so the card hides immediately after check-in
+  // Realtime for check-ins
   useEffect(() => {
     if (!session?.user?.id) return;
 
@@ -142,18 +151,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.container}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-
         <AnimatedSplashOverlay />
 
-        {/* Root Stack */}
         <Stack screenOptions={{ headerShown: false }}>
-          {/* Main App Tabs */}
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-
-          {/* Auth Screen Group */}
           <Stack.Screen name="(auth)" options={{ headerShown: false, animation: 'fade' }} />
-
-          {/* Drill-down Pages */}
           <Stack.Screen name="streak" options={{ title: 'Streak Details' }} />
           <Stack.Screen name="leaderboard" options={{ title: 'Global Leaderboard' }} />
           <Stack.Screen name="matches" options={{ title: 'All Matches' }} />
@@ -162,7 +164,6 @@ export default function RootLayout() {
           <Stack.Screen name="my-games" options={{ title: 'My Predictions & Games' }} />
         </Stack>
 
-        {/* Global Floating Streak Banner — only when logged in AND not checked in today */}
         {session && !hasCheckedInToday && (
           <View
             pointerEvents="box-none"

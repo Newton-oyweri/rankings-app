@@ -7,61 +7,110 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 
-interface HeaderProps {
-  notificationCount?: number;
-}
-
-export function Header({ notificationCount = 3 }: HeaderProps) {
+export function Header() {
   const isNavigating = useRef(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    // 1. Fetch current user on mount
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user?.email) {
-        setUserEmail(user.email);
-      }
+      setUserEmail(user?.email ?? null);
+      setIsLoggedIn(!!user);
     });
 
-    // 2. Listen for auth state changes (e.g. sign in/out)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserEmail(session?.user?.email ?? null);
+      setIsLoggedIn(!!session?.user);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleOpenNotifications = () => {
+  const navigateSafely = (path: string) => {
     if (isNavigating.current) return;
     isNavigating.current = true;
 
-    router.push('/notifications');
+    if (!isLoggedIn) {
+      router.push('/(auth)/sign-in');
+    } else {
+      router.push(path as any);
+    }
 
     setTimeout(() => {
       isNavigating.current = false;
     }, 500);
   };
 
+  const handleOpenStreak = () => navigateSafely('/streak');
+  const handleOpenSearch = () => navigateSafely('/searchprofiles');
+  const handleOpenAddTeam = () => navigateSafely('/Addteam');
+  const handleOpenNotifications = () => navigateSafely('/notifications');
+
   return (
     <View style={styles.header}>
-      <View>
+      {/* Title & Subtitle */}
+      <View style={styles.titleContainer}>
         <ThemedText style={styles.headerTitle}>RANKINGS</ThemedText>
         <ThemedText style={styles.headerSubtitle} numberOfLines={1}>
           {userEmail ? userEmail : 'Predict • Challenge • Compete'}
         </ThemedText>
       </View>
+
+      {/* Action Buttons */}
+      <View style={styles.actionsContainer}>
+      {/* wallet / Flame Button */}
       <Pressable
-        style={styles.bellButton}
-        onPress={handleOpenNotifications}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={({ pressed }) => [
+          styles.streakButton,
+          pressed && styles.pressed,
+        ]}
+        onPress={handleOpenStreak}
+        hitSlop={8}
       >
-        <Ionicons name="notifications-outline" size={20} color="#1a1a2e" />
-        {notificationCount > 0 && (
-          <View style={styles.badge}>
-            <ThemedText style={styles.badgeText}>{notificationCount}</ThemedText>
-          </View>
-        )}
+        <View style={styles.streakBadge}>
+          <Ionicons name="sparkles" size={10} color="#D97706" />
+        </View>
+        <Ionicons name="wallet-outline" size={18} color="#F59E0B" />
       </Pressable>
+
+        {/* Search Profiles */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && styles.pressed,
+          ]}
+          onPress={handleOpenSearch}
+          hitSlop={8}
+        >
+          <Ionicons name="search-outline" size={18} color="#2563EB" />
+        </Pressable>
+
+        {/* Add Team / Create Challenge (+) */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && styles.pressed,
+          ]}
+          onPress={handleOpenAddTeam}
+          hitSlop={8}
+        >
+          <Ionicons name="add-outline" size={22} color="#1E293B" />
+        </Pressable>
+
+        {/* Notifications */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && styles.pressed,
+          ]}
+          onPress={handleOpenNotifications}
+          hitSlop={8}
+        >
+          <Ionicons name="notifications-outline" size={19} color="#1E293B" />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -72,39 +121,78 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.four,
-    paddingVertical: 8,
+    paddingVertical: 10,
+  },
+  titleContainer: {
+    flex: 1,
+    paddingRight: 8,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '800',
-    letterSpacing: 0.5,
-    color: '#1a1a2e',
+    letterSpacing: 0.6,
+    color: '#0F172A',
     lineHeight: 22,
   },
   headerSubtitle: {
     fontSize: 11,
-    color: '#6b7280',
-    marginTop: 0,
+    color: '#64748B',
+    marginTop: 1,
+    fontWeight: '500',
   },
-  bellButton: {
-    position: 'relative',
-    padding: 6,
+  actionsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  badge: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: '#3B82F6',
-    borderRadius: 8,
-    minWidth: 15,
-    height: 15,
-    paddingHorizontal: 2,
+
+  /* Streak / Flame pill */
+  streakButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  badgeText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '700',
+  streakBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+
+  /* Standard circular icon buttons */
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+
+  pressed: {
+    opacity: 0.75,
+    transform: [{ scale: 0.94 }],
   },
 });

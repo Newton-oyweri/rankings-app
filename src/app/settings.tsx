@@ -43,6 +43,7 @@ export default function SettingsScreen() {
   const [profilePic, setProfilePic] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
   const [gender, setGender] = useState('');
   const [county, setCounty] = useState('');
 
@@ -80,6 +81,7 @@ export default function SettingsScreen() {
         setProfilePic(profile.profile_pic || null);
         setDisplayName(profile.display_name || '');
         setUsername(profile.username || '');
+        setPhone(profile.phone || '');
         setGender(profile.gender || '');
         setCounty(profile.county || '');
         setIsGenderLocked(!!profile.gender);
@@ -142,16 +144,40 @@ export default function SettingsScreen() {
     }
   };
 
+  const formatPhoneNumber = (phoneNumber: string): string => {
+    let formatted = phoneNumber.trim().replace(/\s/g, '');
+    
+    if (!formatted) return '';
+
+    // If it starts with 0, replace with +254
+    if (formatted.startsWith('0')) {
+      formatted = '+254' + formatted.substring(1);
+    }
+    // If it starts with 254 (without +), add +
+    else if (formatted.startsWith('254') && !formatted.startsWith('+')) {
+      formatted = '+' + formatted;
+    }
+    // If it doesn't start with + and doesn't match above patterns
+    else if (!formatted.startsWith('+')) {
+      formatted = '+254' + formatted;
+    }
+
+    return formatted;
+  };
+
   const handleSaveProfile = async () => {
     try {
       setSaving(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      const formattedPhone = formatPhoneNumber(phone);
+
       const updates = {
         id: user.id,
         display_name: displayName.trim(),
         username: username.trim(),
+        phone: formattedPhone || null,
         gender: gender || null,
         county: county || null,
         profile_pic: profilePic,
@@ -161,12 +187,16 @@ export default function SettingsScreen() {
 
       if (error) {
         console.error('Save failed:', error.message);
+        Alert.alert('Error', 'Failed to save profile: ' + error.message);
       } else {
+        setPhone(formattedPhone);
         if (gender) setIsGenderLocked(true);
         if (county) setIsCountyLocked(true);
+        Alert.alert('Success', 'Profile updated successfully!');
       }
     } catch (e: any) {
       console.error('handleSaveProfile error:', e?.message ?? e);
+      Alert.alert('Error', 'An unexpected error occurred');
     } finally {
       setSaving(false);
     }
@@ -266,6 +296,21 @@ export default function SettingsScreen() {
               autoCorrect={false}
             />
           </View>
+
+          {/* Phone Number */}
+          <ThemedText style={styles.label}>Phone Number</ThemedText>
+          <TextInput
+            style={styles.input}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="0712345678 or +254712345678"
+            placeholderTextColor="#9ca3af"
+            keyboardType="phone-pad"
+            autoCapitalize="none"
+          />
+          <ThemedText style={styles.helperText}>
+            Enter Kenyan phone number (starts with 0 or +254)
+          </ThemedText>
 
           {/* Gender */}
           <ThemedText style={styles.label}>
@@ -384,6 +429,12 @@ const styles = StyleSheet.create({
   scroll: { padding: Spacing.four, paddingBottom: 40 },
   title: { fontSize: 18, fontWeight: '800', marginBottom: 16 },
   label: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 12 },
+  helperText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+    marginBottom: 8,
+  },
   input: {
     backgroundColor: '#fff',
     borderWidth: 1,

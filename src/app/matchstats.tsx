@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import Profiles from '@/components/profiles';
 import { ThemedText } from '@/components/themed-text';
 import { supabase } from '@/lib/supabase';
 
@@ -24,17 +25,6 @@ interface VotingStats {
   totalVotes: number;
   userVote: 'home' | 'draw' | 'away' | null;
 }
-
-/**
- * Generates a deterministic, colorful initials avatar fallback using DiceBear.
- */
-const getTeamAvatar = (name?: string, avatarUrl?: string) => {
-  if (avatarUrl && avatarUrl.trim() !== '') {
-    return avatarUrl;
-  }
-  const seedName = name ? encodeURIComponent(name) : 'Team';
-  return `https://api.dicebear.com/9.x/initials/png?seed=${seedName}&backgroundType=gradientLinear`;
-};
 
 export default function MatchStatsScreen() {
   const insets = useSafeAreaInsets();
@@ -127,18 +117,27 @@ export default function MatchStatsScreen() {
       return;
     }
 
+    // 1. Check if match is already played
+    if (matchData?.played) {
+      Alert.alert('Voting Closed', 'Voting is disabled because this match has already been played.');
+      return;
+    }
+
+    // 2. Check if user has already voted (one-time voting enforcement)
+    if (stats.userVote !== null) {
+      Alert.alert('Vote Locked', 'You have already submitted your prediction for this match.');
+      return;
+    }
+
     try {
       setSubmitting(true);
 
-      // Upsert prediction into match_votes
-      const { error } = await supabase.from('match_votes').upsert(
-        {
-          match_id: matchId,
-          user_id: userId,
-          predicted_winner: prediction,
-        },
-        { onConflict: 'match_id,user_id' }
-      );
+      // Insert prediction into match_votes
+      const { error } = await supabase.from('match_votes').insert({
+        match_id: matchId,
+        user_id: userId,
+        predicted_winner: prediction,
+      });
 
       if (error) throw error;
 
@@ -162,8 +161,11 @@ export default function MatchStatsScreen() {
 
   const homeName = matchData?.home_team?.name ?? 'Home';
   const awayName = matchData?.away_team?.name ?? 'Away';
-  const homeAvatar = getTeamAvatar(homeName, matchData?.home_team?.avatar_url);
-  const awayAvatar = getTeamAvatar(awayName, matchData?.away_team?.avatar_url);
+  const homeAvatar = matchData?.home_team?.avatar_url;
+  const awayAvatar = matchData?.away_team?.avatar_url;
+
+  // Determine if voting controls should be interactive
+  const isVotingDisabled = submitting || stats.userVote !== null || matchData?.played === true;
 
   const homePercent =
     stats.totalVotes > 0 ? Math.round((stats.homeVotes / stats.totalVotes) * 100) : 0;
@@ -211,7 +213,9 @@ export default function MatchStatsScreen() {
           <View style={styles.teamsRow}>
             {/* Home Team */}
             <View style={styles.teamCol}>
-              <Image source={{ uri: homeAvatar }} style={styles.teamBadge} />
+              {homeAvatar ? (
+                <Image source={{ uri: homeAvatar }} style={styles.teamBadge} />
+              ) : null}
               <ThemedText style={styles.teamName} numberOfLines={2}>
                 {homeName}
               </ThemedText>
@@ -223,7 +227,9 @@ export default function MatchStatsScreen() {
 
             {/* Away Team */}
             <View style={styles.teamCol}>
-              <Image source={{ uri: awayAvatar }} style={styles.teamBadge} />
+              {awayAvatar ? (
+                <Image source={{ uri: awayAvatar }} style={styles.teamBadge} />
+              ) : null}
               <ThemedText style={styles.teamName} numberOfLines={2}>
                 {awayName}
               </ThemedText>
@@ -269,10 +275,11 @@ export default function MatchStatsScreen() {
           <View style={styles.optionsContainer}>
             {/* Home Win */}
             <Pressable
-              disabled={submitting}
+              disabled={isVotingDisabled}
               style={[
                 styles.optionBtn,
                 stats.userVote === 'home' && styles.optionBtnSelected,
+                isVotingDisabled && stats.userVote !== 'home' && styles.optionBtnDisabled,
               ]}
               onPress={() => handleVote('home')}
             >
@@ -285,10 +292,11 @@ export default function MatchStatsScreen() {
 
             {/* Draw */}
             <Pressable
-              disabled={submitting}
+              disabled={isVotingDisabled}
               style={[
                 styles.optionBtn,
                 stats.userVote === 'draw' && styles.optionBtnSelected,
+                isVotingDisabled && stats.userVote !== 'draw' && styles.optionBtnDisabled,
               ]}
               onPress={() => handleVote('draw')}
             >
@@ -299,10 +307,11 @@ export default function MatchStatsScreen() {
 
             {/* Away Win */}
             <Pressable
-              disabled={submitting}
+              disabled={isVotingDisabled}
               style={[
                 styles.optionBtn,
                 stats.userVote === 'away' && styles.optionBtnSelected,
+                isVotingDisabled && stats.userVote !== 'away' && styles.optionBtnDisabled,
               ]}
               onPress={() => handleVote('away')}
             >
@@ -313,6 +322,11 @@ export default function MatchStatsScreen() {
               <ThemedText style={styles.optionCount}>({stats.awayVotes})</ThemedText>
             </Pressable>
           </View>
+        </View>
+
+        {/* Profiles Component Displayed Below */}
+        <View style={styles.profilesWrapper}>
+          <Profiles matchId={matchId} />
         </View>
       </ScrollView>
     </View>
@@ -462,6 +476,9 @@ const styles = StyleSheet.create({
     borderColor: '#2563EB',
     backgroundColor: '#EFF6FF',
   },
+  optionBtnDisabled: {
+    opacity: 0.6,
+  },
   optionLabel: {
     fontSize: 12,
     fontWeight: '600',
@@ -478,5 +495,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#64748B',
     marginTop: 2,
+  },
+  profilesWrapper: {
+    marginTop: 16,
   },
 });

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "355913384539",
+    "project_id": "rankings-141f0",
+    "storage_bucket": "rankings-141f0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:355913384539:android:e2f2212d78242ff614b57e",
+        "android_client_info": {
+          "package_name": "com.skylaisack.rankings"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBRa1nfu8ncbjPrzVkuYgiGk_czjvanpWQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

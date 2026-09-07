@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ActivityItem} from '@/components/profile/ActivityItem';
+import { ActivityItem } from '@/components/profile/ActivityItem';
 import { MyGamesSection } from '@/components/profile/MyGamesSection';
 import { ProfileHeader } from '@/components/profile/ProfileHeader';
 import { QuickStatsRow } from '@/components/profile/QuickStatsRow';
@@ -20,13 +20,6 @@ import { UserProfileCard } from '@/components/profile/UserProfileCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import {
-  mockAchievements,
-  mockActivities,
-  mockGames,
-  mockQuickStats,
-  mockUserProfile,
-} from '@/data/mock-profile';
 import { supabase } from '@/lib/supabase';
 
 export default function ProfileScreen() {
@@ -38,7 +31,10 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // 1. Listen for auth state
+  // 1. Unique key state to force total component unmount/remount
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // 2. Listen for auth state
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -63,6 +59,8 @@ export default function ProfileScreen() {
     } catch (err) {
       console.error('Error refreshing profile session:', err);
     } finally {
+      // Incrementing key forces React to unmount all children and re-render fresh
+      setRefreshKey((prevKey) => prevKey + 1);
       setRefreshing(false);
     }
   }, []);
@@ -80,7 +78,7 @@ export default function ProfileScreen() {
     },
   });
 
-  // 2. Loading state fallback
+  // 3. Loading state fallback
   if (loading) {
     return (
       <ThemedView style={styles.centeredContainer}>
@@ -89,7 +87,7 @@ export default function ProfileScreen() {
     );
   }
 
-  // 3. Unauthenticated State (Centered Box)
+  // 4. Unauthenticated State
   if (!session) {
     return (
       <ThemedView style={styles.rootContainer}>
@@ -118,7 +116,7 @@ export default function ProfileScreen() {
     );
   }
 
-  // 4. Authenticated State (Full Profile Screen)
+  // 5. Authenticated State (Full Profile Screen)
   return (
     <ThemedView style={styles.rootContainer}>
       {/* Static Header */}
@@ -138,12 +136,12 @@ export default function ProfileScreen() {
           />
         }
       >
-        <View style={styles.container}>
-<UserProfileCard userId={session.user.id} profile={mockUserProfile} />
+        {/* Pass key to container wrapper so all nested children completely unmount */}
+        <View key={refreshKey} style={styles.container}>
+          <UserProfileCard userId={session.user.id} />
           <QuickStatsRow userId={session.user.id} />
-          <MyGamesSection/>
+          <MyGamesSection />
           <ActivityItem userId={session.user.id} />
-         
         </View>
       </ScrollView>
     </ThemedView>
@@ -215,12 +213,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 24,
-  },
-  activityList: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  bottomSection: {
-    gap: 16,
   },
 });

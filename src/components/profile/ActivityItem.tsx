@@ -1,7 +1,5 @@
-import { SymbolView } from 'expo-symbols';
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -12,6 +10,8 @@ import {
 
 import { ThemedText } from '@/components/themed-text';
 import { supabase } from '@/lib/supabase';
+import { MatchPredictions } from './match-predictions';
+import { JackpotEntries } from './jackpot-entries';
 
 // Enable LayoutAnimation for Android
 if (
@@ -21,6 +21,7 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// Types for Matches Tab
 interface Team {
   name: string;
 }
@@ -45,18 +46,52 @@ interface MatchVoteRecord {
   matches: MatchData;
 }
 
+// Types for Jackpot Tab
+interface JackpotGameSelection {
+  id: string;
+  game_id: string;
+  game_number: number;
+  home_team: string;
+  away_team: string;
+  selection: 'HOME' | 'DRAW' | 'AWAY';
+  is_correct: boolean | null;
+  outcome?: 'HOME' | 'DRAW' | 'AWAY' | null;
+  home_score?: number | null;
+  away_score?: number | null;
+  game_status?: 'pending' | 'finished' | 'cancelled' | null;
+}
+
+interface UserJackpotEntry {
+  entry_id: string;
+  entry_number: number;
+  entry_fee: string;
+  correct_predictions: number;
+  entry_status: 'submitted' | 'winner' | 'loser' | 'void';
+  submitted_at: string;
+  jackpot_name: string;
+  game_count: number;
+  selections: JackpotGameSelection[];
+}
+
 interface ActivityItemProps {
   userId?: string;
 }
 
 export function ActivityItem({ userId }: ActivityItemProps) {
-  const [votes, setVotes] = useState<MatchVoteRecord[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<'matches' | 'jackpots'>('matches');
 
+  // Match Votes State
+  const [votes, setVotes] = useState<MatchVoteRecord[]>([]);
+  const [loadingVotes, setLoadingVotes] = useState<boolean>(true);
+
+  // Jackpot Entries State
+  const [jackpotEntries, setJackpotEntries] = useState<UserJackpotEntry[]>([]);
+  const [loadingJackpots, setLoadingJackpots] = useState<boolean>(true);
+
+  // Fetch Match Votes
   const fetchPredictedMatches = useCallback(async (uid: string) => {
     try {
-      setLoading(true);
-
+      setLoadingVotes(true);
       const { data, error } = await supabase
         .from('match_votes')
         .select(`
@@ -90,269 +125,200 @@ export function ActivityItem({ userId }: ActivityItemProps) {
     } catch (err) {
       console.error('Error in fetchPredictedMatches:', err);
     } finally {
-      setLoading(false);
+      setLoadingVotes(false);
+    }
+  }, []);
+
+  // Fetch Jackpot Entries
+  const fetchUserJackpotEntries = useCallback(async (uid: string) => {
+    try {
+      setLoadingJackpots(true);
+      const { data: entriesData, error: entriesError } = await supabase
+        .from('jackpot_entries')
+        .select(`
+          id,
+          entry_number,
+          entry_fee,
+          correct_predictions,
+          status,
+          submitted_at,
+          jackpots (
+            name,
+            game_count
+          )
+        `)
+        .eq('user_id', uid)
+        .order('submitted_at', { ascending: false });
+
+      if (entriesError) {
+        console.error('Error fetching jackpot entries:', entriesError.message);
+        return;
+      }
+
+      if (!entriesData || entriesData.length === 0) {
+        setJackpotEntries([]);
+        return;
+      }
+
+      const entryIds = entriesData.map((e) => e.id);
+
+      const { data: selectionsData, error: selectionsError } = await supabase
+        .from('jackpot_selections')
+        .select(`
+          id,
+          entry_id,
+          game_id,
+          selection,
+          is_correct,
+          jackpot_games (
+            game_number,
+            home_team,
+            away_team,
+            outcome,
+            home_score,
+            away_score,
+            status
+          )
+        `)
+        .in('entry_id', entryIds);
+
+      if (selectionsError) {
+        console.error('Error fetching jackpot selections:', selectionsError.message);
+      }
+
+      const selectionsByEntry: Record<string, JackpotGameSelection[]> = {};
+      (selectionsData || []).forEach((item: any) => {
+        const game = item.jackpot_games || {};
+        if (!selectionsByEntry[item.entry_id]) {
+          selectionsByEntry[item.entry_id] = [];
+        }
+
+        selectionsByEntry[item.entry_id].push({
+          id: item.id,
+          game_id: item.game_id,
+          game_number: game.game_number || 0,
+          home_team: game.home_team || 'Home',
+          away_team: game.away_team || 'Away',
+          selection: item.selection,
+          is_correct: item.is_correct,
+          outcome: game.outcome,
+          home_score: game.home_score,
+          away_score: game.away_score,
+          game_status: game.status,
+        });
+      });
+
+      const formattedEntries: UserJackpotEntry[] = entriesData.map((item: any) => {
+        const jackpot = item.jackpots || {};
+        const sortedPicks = (selectionsByEntry[item.id] || []).sort(
+          (a, b) => a.game_number - b.game_number
+        );
+
+        return {
+          entry_id: item.id,
+          entry_number: item.entry_number,
+          entry_fee: Number(item.entry_fee).toFixed(2),
+          correct_predictions: item.correct_predictions,
+          entry_status: item.status,
+          submitted_at: item.submitted_at,
+          jackpot_name: jackpot.name || 'Jackpot',
+          game_count: jackpot.game_count || 0,
+          selections: sortedPicks,
+        };
+      });
+
+      setJackpotEntries(formattedEntries);
+    } catch (err) {
+      console.error('Error in fetchUserJackpotEntries:', err);
+    } finally {
+      setLoadingJackpots(false);
     }
   }, []);
 
   useEffect(() => {
     if (userId) {
       fetchPredictedMatches(userId);
+      fetchUserJackpotEntries(userId);
     } else {
-      setLoading(false);
+      setLoadingVotes(false);
+      setLoadingJackpots(false);
     }
-  }, [userId, fetchPredictedMatches]);
+  }, [userId, fetchPredictedMatches, fetchUserJackpotEntries]);
 
-  if (loading) {
-    return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="small" color="#1E40AF" />
-      </View>
-    );
-  }
-
-  if (votes.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <ThemedText style={styles.emptyText}>No predictions placed yet.</ThemedText>
-      </View>
-    );
-  }
+  const handleTabChange = (tab: 'matches' | 'jackpots') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActiveTab(tab);
+  };
 
   return (
     <View style={styles.container}>
-      {votes.map((item) => (
-        <BetslipCard key={item.id} vote={item} />
-      ))}
-    </View>
-  );
-}
-
-function BetslipCard({ vote }: { vote: MatchVoteRecord }) {
-  const [expanded, setExpanded] = useState<boolean>(false);
-  const match = vote.matches;
-  const homeTeam = match?.home_team?.name || 'Home';
-  const awayTeam = match?.away_team?.name || 'Away';
-
-  const toggleExpand = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded((prev) => !prev);
-  };
-
-  const outcomeConfig = {
-    correct: {
-      badgeText: 'W',
-      color: '#16A34A',
-      bgColor: 'rgba(22, 163, 74, 0.12)',
-      points: '+10 PTS',
-      label: 'WON',
-    },
-    incorrect: {
-      badgeText: 'L',
-      color: '#DC2626',
-      bgColor: 'rgba(220, 38, 38, 0.12)',
-      points: '0 PTS',
-      label: 'LOST',
-    },
-    pending: {
-      badgeText: 'PENDING',
-      color: '#D97706',
-      bgColor: 'rgba(217, 119, 6, 0.12)',
-      points: 'PENDING',
-      label: 'PENDING',
-    },
-  }[vote.outcome] || {
-    badgeText: 'PENDING',
-    color: '#64748B',
-    bgColor: '#F1F5F9',
-    points: '0 PTS',
-    label: 'PENDING',
-  };
-
-  const formattedDate = match?.created_at
-    ? new Date(match.created_at).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-      })
-    : '';
-
-  const scoreDisplay = match?.played
-    ? `${match.home_goals} - ${match.away_goals}`
-    : 'Not Played';
-
-  return (
-    <Pressable style={styles.betslipCard} onPress={toggleExpand}>
-      {/* Top Main Row */}
-      <View style={styles.mainRow}>
-        {/* Match & Selection Details */}
-        <View style={styles.leftInfo}>
-          <ThemedText style={styles.teamsHeader} numberOfLines={1}>
-            {homeTeam} <ThemedText style={styles.vsText}>vs</ThemedText> {awayTeam}
+      {/* Tab Switcher Header */}
+      <View style={styles.tabBar}>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'matches' && styles.activeTabButton]}
+          onPress={() => handleTabChange('matches')}
+        >
+          <ThemedText
+            style={[styles.tabText, activeTab === 'matches' && styles.activeTabText]}
+          >
+            Match Predictions
           </ThemedText>
+        </Pressable>
 
-          <View style={styles.pickRow}>
-            <ThemedText style={styles.pickLabel}>Pick: </ThemedText>
-            <ThemedText style={styles.pickValue} numberOfLines={1}>
-              {vote.predicted_winner}
-            </ThemedText>
-          </View>
-        </View>
-
-        {/* Far Right Outcome Badge */}
-        <View style={styles.rightInfo}>
-          <View style={[styles.outcomeBadge, { backgroundColor: outcomeConfig.bgColor }]}>
-            <ThemedText style={[styles.outcomeBadgeText, { color: outcomeConfig.color }]}>
-              {outcomeConfig.badgeText}
-            </ThemedText>
-          </View>
-          <SymbolView
-            name={{
-              ios: expanded ? 'chevron.up' : 'chevron.down',
-              android: expanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down',
-              web: expanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down',
-            }}
-            size={14}
-            tintColor="#94A3B8"
-          />
-        </View>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'jackpots' && styles.activeTabButton]}
+          onPress={() => handleTabChange('jackpots')}
+        >
+          <ThemedText
+            style={[styles.tabText, activeTab === 'jackpots' && styles.activeTabText]}
+          >
+            Contest
+          </ThemedText>
+        </Pressable>
       </View>
 
-      {/* Expanded Content View */}
-      {expanded && (
-        <View style={styles.expandedContent}>
-          <View style={styles.divider} />
-          
-          <View style={styles.detailRow}>
-            <ThemedText style={styles.detailLabel}>Stage</ThemedText>
-            <ThemedText style={styles.detailValue}>{match?.stage || 'MATCH'}</ThemedText>
-          </View>
-
-          <View style={styles.detailRow}>
-            <ThemedText style={styles.detailLabel}>Result Score</ThemedText>
-            <ThemedText style={styles.detailValue}>{scoreDisplay}</ThemedText>
-          </View>
-
-          <View style={styles.detailRow}>
-            <ThemedText style={styles.detailLabel}>Points Awarded</ThemedText>
-            <ThemedText style={[styles.detailValue, { color: outcomeConfig.color }]}>
-              {outcomeConfig.points}
-            </ThemedText>
-          </View>
-
-          {formattedDate ? (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Date</ThemedText>
-              <ThemedText style={styles.detailValue}>{formattedDate}</ThemedText>
-            </View>
-          ) : null}
-        </View>
+      {/* Tab Content */}
+      {activeTab === 'matches' ? (
+        <MatchPredictions votes={votes} loading={loadingVotes} />
+      ) : (
+        <JackpotEntries entries={jackpotEntries} loading={loadingJackpots} />
       )}
-    </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    gap: 8,
+    gap: 12,
   },
-  loaderContainer: {
-    padding: 20,
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    padding: 3,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 8,
     alignItems: 'center',
+    borderRadius: 8,
   },
-  emptyContainer: {
-    padding: 20,
-    alignItems: 'center',
+  activeTabButton: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-  },
-  emptyText: {
-    color: '#64748B',
-    fontSize: 14,
-  },
-  betslipCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.05,
     shadowRadius: 2,
-    elevation: 1,
   },
-  mainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  leftInfo: {
-    flex: 1,
-    marginRight: 10,
-  },
-  teamsHeader: {
+  tabText: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 2,
-  },
-  vsText: {
-    fontSize: 11,
-    color: '#94A3B8',
-    fontWeight: '500',
-  },
-  pickRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  pickLabel: {
-    fontSize: 11,
-    color: '#64748B',
-  },
-  pickValue: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  rightInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  outcomeBadge: {
-    minWidth: 28,
-    height: 28,
-    paddingHorizontal: 6,
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  outcomeBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-    marginVertical: 10,
-  },
-  expandedContent: {
-    paddingTop: 2,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 3,
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  detailValue: {
-    fontSize: 12,
     fontWeight: '600',
+    color: '#64748B',
+  },
+  activeTabText: {
     color: '#0F172A',
+    fontWeight: '700',
   },
 });
 

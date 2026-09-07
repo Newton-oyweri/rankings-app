@@ -10,10 +10,12 @@
     "ios": {
       "icon": "./assets/expo.icon"
     },
-    "android": {
-      "predictiveBackGestureEnabled": false,
-      "package": "com.skylaisack.rankings"
-    },
+  "android": {
+  "predictiveBackGestureEnabled": false,
+  "package": "com.skylaisack.rankings",
+  "googleServicesFile": "./google-services.json",
+  "useNextNotificationsApi": true
+},
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
@@ -42,7 +44,16 @@
       "@react-native-community/datetimepicker",
       "expo-audio",
       "expo-video",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/status-bar.png",
+          "color": "#ffffff",
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,
