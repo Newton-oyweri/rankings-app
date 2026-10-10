@@ -10,12 +10,11 @@
     "ios": {
       "icon": "./assets/expo.icon"
     },
-  "android": {
-  "predictiveBackGestureEnabled": false,
-  "package": "com.skylaisack.rankings",
-  "googleServicesFile": "./google-services.json",
-  "useNextNotificationsApi": true
-},
+    "android": {
+      "predictiveBackGestureEnabled": false,
+      "package": "com.skylaisack.rankings",
+      "googleServicesFile": "./google-services.json"
+    },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
@@ -53,7 +52,8 @@
           "defaultChannel": "default"
         }
       ],
-      "expo-image"
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
