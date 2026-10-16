@@ -13,6 +13,9 @@ import {
 
 import { ThemedText } from '@/components/themed-text';
 import { supabase } from '@/lib/supabase';
+import { PAYSTACK_CONFIG } from '@/lib/paystack';
+
+
 
 // Base API URL
 const API_BASE_URL = 'https://neville-interconfessional-enedina.ngrok-free.dev';
