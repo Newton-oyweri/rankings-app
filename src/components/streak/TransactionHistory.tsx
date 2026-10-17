@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -10,7 +10,7 @@ interface Transaction {
   wallet_id: string;
   amount: number;
   type: 'DEPOSIT' | 'WITHDRAWAL' | string;
-  status: 'PENDING' | 'SUCCESS' | 'FAILED' | string;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'ABANDONED' | string;
   reference: string | null;
   description: string | null;
   created_at: string;
@@ -18,48 +18,68 @@ interface Transaction {
 
 interface TransactionHistoryProps {
   userId: string;
-  refreshTrigger?: number; // Add this prop
+  refreshTrigger?: number;
 }
 
 export function TransactionHistory({ userId, refreshTrigger }: TransactionHistoryProps) {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
 
-  const fetchTransactions = useCallback(async () => {
-    if (!userId) return;
-    try {
-      setLoading(true);
+  const fetchTransactions = useCallback(
+    async (showLoader = true) => {
+      if (!userId) return;
+      try {
+        if (showLoader) setLoading(true);
 
-      // Query wallet_transactions joined on user's wallet
-      const { data, error } = await supabase
-        .from('wallet_transactions')
-        .select(`
-          id,
-          wallet_id,
-          amount,
-          type,
-          status,
-          reference,
-          description,
-          created_at,
-          wallets!inner(user_id)
-        `)
-        .eq('wallets.user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(10);
+        const { data, error } = await supabase
+          .from('wallet_transactions')
+          .select(`
+            id,
+            wallet_id,
+            amount,
+            type,
+            status,
+            reference,
+            description,
+            created_at,
+            wallets!inner(user_id)
+          `)
+          .eq('wallets.user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(20);
 
-      if (error) throw error;
-      setTransactions(data || []);
-    } catch (err) {
-      console.error('Error fetching transactions:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
+        if (error) throw error;
+        setTransactions((data as any[]) || []);
+      } catch (err) {
+        console.error('Error fetching transactions:', err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userId]
+  );
 
   useEffect(() => {
     fetchTransactions();
-  }, [fetchTransactions, refreshTrigger]); // Add refreshTrigger to dependencies
+  }, [fetchTransactions, refreshTrigger]);
+
+  // Live updates (RLS makes sure we only receive our own rows)
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`wallet_tx_${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'wallet_transactions' },
+        () => fetchTransactions(false)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, fetchTransactions]);
 
   const getStatusColor = (status: string) => {
     switch (status.toUpperCase()) {
@@ -70,6 +90,8 @@ export function TransactionHistory({ userId, refreshTrigger }: TransactionHistor
         return '#EAB308';
       case 'FAILED':
         return '#EF4444';
+      case 'ABANDONED':
+        return '#94A3B8';
       default:
         return '#64748B';
     }
@@ -94,7 +116,10 @@ export function TransactionHistory({ userId, refreshTrigger }: TransactionHistor
         <View style={styles.list}>
           {transactions.map((tx) => {
             const deposit = isDeposit(tx.type);
-            const statusColor = getStatusColor(tx.status);
+            const status = tx.status.toUpperCase();
+            const statusColor = getStatusColor(status);
+            const settled = status === 'SUCCESS' || status === 'COMPLETED';
+            const dead = status === 'FAILED' || status === 'ABANDONED';
 
             return (
               <View key={tx.id} style={styles.txItem}>
@@ -121,7 +146,15 @@ export function TransactionHistory({ userId, refreshTrigger }: TransactionHistor
                 </View>
 
                 <View style={styles.txAmountWrap}>
-                  <ThemedText style={[styles.txAmount, { color: deposit ? '#16A34A' : '#0F172A' }]}>
+                  <ThemedText
+                    style={[
+                      styles.txAmount,
+                      {
+                        color: settled ? (deposit ? '#16A34A' : '#0F172A') : '#94A3B8',
+                        textDecorationLine: dead ? 'line-through' : 'none',
+                      },
+                    ]}
+                  >
                     {deposit ? '+' : '-'} KES {Number(tx.amount).toFixed(2)}
                   </ThemedText>
                   <View style={styles.statusBadge}>
