@@ -16,7 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { supabase } from '@/lib/supabase';
 
 // Base API URL (ngrok tunnel, no trailing slash)
-const API_BASE_URL = 'https://neville-interconfessional-enedina.ngrok-free.dev';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
 
 const MIN_WITHDRAWAL = 500;
 
